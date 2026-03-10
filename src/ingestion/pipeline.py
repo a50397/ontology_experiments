@@ -8,6 +8,7 @@ Ingestion pipeline that:
 """
 
 import hashlib
+import re
 from pathlib import Path
 
 from kreuzberg import (
@@ -22,6 +23,24 @@ from ..ontology_registry.embedding import embedding_config
 from .matcher import match_document_to_ontology, OntologyMatch
 
 COLLECTION = "documents"
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_cypher_identifier(value: str, label: str) -> str:
+    """Validate that *value* is safe to interpolate as a Neo4j label or
+    relationship-type identifier.
+
+    Raises ValueError if the value contains characters outside
+    ``[A-Za-z0-9_]`` or starts with a digit, which prevents Cypher
+    injection via dynamically-constructed label/relationship strings.
+    """
+    if not _SAFE_IDENTIFIER_RE.match(value):
+        raise ValueError(
+            f"Unsafe Cypher identifier for {label!r}: {value!r}. "
+            "Only alphanumeric characters and underscores are allowed."
+        )
+    return value
 
 
 # ── Neo4j helpers ────────────────────────────────────────
@@ -94,11 +113,12 @@ async def _store_entities(
 ):
     """Create Entity nodes in Neo4j linked to the ontology class and source chunk."""
     for entity in entities_data.get("entities", []):
-        entity_id = f"{doc_id}_{entity['class']}_{entity['name']}"
+        entity_class = _safe_cypher_identifier(entity["class"], "entity class")
+        entity_id = f"{doc_id}_{entity_class}_{entity['name']}"
 
         await session.run(
             f"""
-            MERGE (e:Entity:{entity['class']} {{entity_id: $eid}})
+            MERGE (e:Entity:{entity_class} {{entity_id: $eid}})
             SET e.name = $name,
                 e.ontology_id = $oid
             WITH e
@@ -126,12 +146,13 @@ async def _store_entities(
             )
 
     for rel in entities_data.get("relationships", []):
+        rel_type = _safe_cypher_identifier(rel["relation"], "relationship type")
         await session.run(
             f"""
             MATCH (a:Entity {{name: $from_name}})
             MATCH (b:Entity {{name: $to_name}})
             WHERE a.ontology_id = $oid AND b.ontology_id = $oid
-            MERGE (a)-[r:`{rel['relation']}`]->(b)
+            MERGE (a)-[r:`{rel_type}`]->(b)
             """,
             from_name=rel["from_entity"],
             to_name=rel["to_entity"],
