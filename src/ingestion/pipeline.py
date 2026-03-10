@@ -196,7 +196,8 @@ async def ingest_document(
         ),
     )
     result = await extract_file(file_path, config=config)
-    doc_id = hashlib.sha256(file_path.read_bytes()).hexdigest()[:16]
+    with file_path.open("rb") as f:
+        doc_id = hashlib.file_digest(f, "sha256").hexdigest()[:16]
 
     # Find the best-matching ontology
     onto_match = await match_document_to_ontology(
