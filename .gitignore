@@ -64,3 +64,6 @@ cython_debug/
 # ontologies
 *.owl
 *.ttl
+
+# kreuzberg specific
+.kreuzberg/*
