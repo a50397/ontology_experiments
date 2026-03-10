@@ -8,6 +8,7 @@ Ingestion pipeline that:
 """
 
 import hashlib
+import uuid
 from pathlib import Path
 
 from kreuzberg import (
@@ -152,7 +153,7 @@ def _build_chunk_point(
     onto_match: OntologyMatch | None,
 ) -> PointStruct:
     return PointStruct(
-        id=chunk_id,
+        id=str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk_id)),
         vector=embedding,
         payload={
             "doc_id": doc_id,
