@@ -1,0 +1,31 @@
+name: ontology-experiments
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ontology-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
+      - QDRANT__SERVICE__GRPC_PORT=${QDRANT_GRPC_PORT}
+      - QDRANT__SERVICE__HTTP_PORT=${QDRANT_PORT}
+
+  neo4j:
+    image: neo4j:latest
+    container_name: ontology-neo4j
+    ports:
+      - "${NEO4J_HTTP_PORT}:7474"   # HTTP
+      - "${NEO4J_BOLT_PORT}:7687"   # Bolt
+    volumes:
+      - neo4j_data:/data
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH}
+      - NEO4J_dbms_memory_pagecache_size=1G
+      - NEO4J_dbms_usage__report_enabled=false
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+
+volumes:
+  qdrant_data:
+  neo4j_data:
