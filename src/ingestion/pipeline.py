@@ -206,24 +206,46 @@ async def ingest_document(
 
     # Persist to Neo4j and Qdrant
     async with clients.neo4j.session(database=clients.neo4j_db) as session:
-        await _create_document_node(session, doc_id, file_path.name, onto_match)
-
+        # Precompute Qdrant points (pure in-memory work)
         points = []
         for i, chunk in enumerate(result.chunks):
             chunk_id = f"{doc_id}_chunk_{i}"
-
-            points.append(_build_chunk_point(
-                chunk_id, chunk.embedding, chunk.content,
-                doc_id, i, file_path.name, onto_match,
-            ))
-            await _create_chunk_node(session, chunk_id, chunk.content, i, doc_id)
-
-            if onto_match and entities_data_per_chunk and i in entities_data_per_chunk:
-                await _store_entities(
-                    session, entities_data_per_chunk[i],
-                    chunk_id, doc_id, onto_match.ontology_id,
+            points.append(
+                _build_chunk_point(
+                    chunk_id,
+                    chunk.embedding,
+                    chunk.content,
+                    doc_id,
+                    i,
+                    file_path.name,
+                    onto_match,
                 )
+            )
 
+        # Execute all Neo4j writes for this document in a single transaction
+        async def _write_graph(tx):
+            await _create_document_node(tx, doc_id, file_path.name, onto_match)
+
+            for i, chunk in enumerate(result.chunks):
+                chunk_id = f"{doc_id}_chunk_{i}"
+                await _create_chunk_node(tx, chunk_id, chunk.content, i, doc_id)
+
+                if (
+                    onto_match
+                    and entities_data_per_chunk
+                    and i in entities_data_per_chunk
+                ):
+                    await _store_entities(
+                        tx,
+                        entities_data_per_chunk[i],
+                        chunk_id,
+                        doc_id,
+                        onto_match.ontology_id,
+                    )
+
+        await session.execute_write(_write_graph)
+
+        # Persist embeddings to Qdrant after the Neo4j transaction succeeds
         await clients.qdrant.upsert(collection_name=COLLECTION, points=points)
 
     return doc_id
