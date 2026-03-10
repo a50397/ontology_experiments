@@ -8,6 +8,7 @@ Ingestion pipeline that:
 """
 
 import hashlib
+import re
 from pathlib import Path
 
 from kreuzberg import (
@@ -22,6 +23,22 @@ from ..ontology_registry.embedding import embedding_config
 from .matcher import match_document_to_ontology, OntologyMatch
 
 COLLECTION = "documents"
+
+_SAFE_REL_RE = re.compile(r"^[\w\-]+$")
+
+
+def _safe_relation_type(rel_type: str) -> str:
+    """Return *rel_type* unchanged if it contains only safe characters.
+
+    Raises ``ValueError`` if the value is empty or contains characters that
+    could break out of Cypher backtick-quoting and allow query injection.
+    """
+    if not rel_type or not _SAFE_REL_RE.match(rel_type):
+        raise ValueError(
+            f"Unsafe relation type rejected: {rel_type!r}. "
+            "Only alphanumeric characters, underscores, and hyphens are allowed."
+        )
+    return rel_type
 
 
 # ── Neo4j helpers ────────────────────────────────────────
@@ -126,12 +143,13 @@ async def _store_entities(
             )
 
     for rel in entities_data.get("relationships", []):
+        rel_type = _safe_relation_type(rel["relation"])
         await session.run(
             f"""
             MATCH (a:Entity {{name: $from_name}})
             MATCH (b:Entity {{name: $to_name}})
             WHERE a.ontology_id = $oid AND b.ontology_id = $oid
-            MERGE (a)-[r:`{rel['relation']}`]->(b)
+            MERGE (a)-[r:`{rel_type}`]->(b)
             """,
             from_name=rel["from_entity"],
             to_name=rel["to_entity"],
