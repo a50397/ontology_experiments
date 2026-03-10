@@ -8,6 +8,7 @@ Ingestion pipeline that:
 """
 
 import hashlib
+import re
 from pathlib import Path
 
 from kreuzberg import (
@@ -22,6 +23,24 @@ from ..ontology_registry.embedding import embedding_config
 from .matcher import match_document_to_ontology, OntologyMatch
 
 COLLECTION = "documents"
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_cypher_identifier(value: str, context: str) -> None:
+    """Raise ValueError if *value* is not a safe Neo4j label / relationship-type identifier.
+
+    Neo4j does not support parameterised labels or relationship types, so any
+    value that will be interpolated into a Cypher query must be validated before
+    use.  Only identifiers that consist solely of ASCII letters, digits and
+    underscores (and start with a letter or underscore) are accepted.
+    """
+    if not _SAFE_IDENTIFIER_RE.match(value):
+        raise ValueError(
+            f"Unsafe Cypher identifier in {context}: {value!r}. "
+            "Only ASCII letters, digits and underscores are allowed, "
+            "and the identifier must start with a letter or underscore."
+        )
 
 
 # ── Neo4j helpers ────────────────────────────────────────
@@ -94,6 +113,7 @@ async def _store_entities(
 ):
     """Create Entity nodes in Neo4j linked to the ontology class and source chunk."""
     for entity in entities_data.get("entities", []):
+        _validate_cypher_identifier(entity["class"], "entity class")
         entity_id = f"{doc_id}_{entity['class']}_{entity['name']}"
 
         await session.run(
@@ -126,6 +146,7 @@ async def _store_entities(
             )
 
     for rel in entities_data.get("relationships", []):
+        _validate_cypher_identifier(rel["relation"], "relationship type")
         await session.run(
             f"""
             MATCH (a:Entity {{name: $from_name}})
