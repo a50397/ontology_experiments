@@ -1,0 +1,12 @@
+[project]
+name = "ontology-experiments"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "kreuzberg>=4.4.4",
+    "neo4j>=6.1.0",
+    "owlready2>=0.50",
+    "qdrant-client>=1.17.0",
+]
