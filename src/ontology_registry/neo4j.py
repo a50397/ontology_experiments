@@ -73,9 +73,9 @@ async def register_in_neo4j(driver, schema: OntologySchema, database: str | None
         for r in prop.range
     ]
 
-    async with driver.session(database=database) as session:
+    async def _write_ontology(tx):
         # 1. Create/update the Ontology node.
-        result = await session.run(
+        result = await tx.run(
             """
             MERGE (o:Ontology {ontology_id: $oid})
             SET o.name = $name,
@@ -91,7 +91,7 @@ async def register_in_neo4j(driver, schema: OntologySchema, database: str | None
 
         # 2. Batch-create classes and link to ontology.
         if classes_data:
-            result = await session.run(
+            result = await tx.run(
                 """
                 MATCH (o:Ontology {ontology_id: $oid})
                 UNWIND $classes AS cls
@@ -108,7 +108,7 @@ async def register_in_neo4j(driver, schema: OntologySchema, database: str | None
 
         # 3. Batch-create SUBCLASS_OF relationships.
         if subclass_data:
-            result = await session.run(
+            result = await tx.run(
                 """
                 UNWIND $rels AS rel
                 MATCH (child:OntologyClass {iri: rel.child_iri})
@@ -121,7 +121,7 @@ async def register_in_neo4j(driver, schema: OntologySchema, database: str | None
 
         # 4. Batch-create properties and link to ontology.
         if props_data:
-            result = await session.run(
+            result = await tx.run(
                 """
                 MATCH (o:Ontology {ontology_id: $oid})
                 UNWIND $props AS prop
@@ -138,7 +138,7 @@ async def register_in_neo4j(driver, schema: OntologySchema, database: str | None
 
         # 5. Batch-create HAS_DOMAIN relationships.
         if domain_data:
-            result = await session.run(
+            result = await tx.run(
                 """
                 UNWIND $rels AS rel
                 MATCH (p:OntologyProperty {iri: rel.prop_iri})
@@ -151,7 +151,7 @@ async def register_in_neo4j(driver, schema: OntologySchema, database: str | None
 
         # 6. Batch-create HAS_RANGE relationships.
         if range_data:
-            result = await session.run(
+            result = await tx.run(
                 """
                 UNWIND $rels AS rel
                 MATCH (p:OntologyProperty {iri: rel.prop_iri})
@@ -161,3 +161,6 @@ async def register_in_neo4j(driver, schema: OntologySchema, database: str | None
                 rels=range_data,
             )
             await result.consume()
+
+    async with driver.session(database=database) as session:
+        await session.execute_write(_write_ontology)
