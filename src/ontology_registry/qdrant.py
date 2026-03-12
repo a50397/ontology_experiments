@@ -1,60 +1,29 @@
 """Qdrant storage operations for ontology schemas."""
 
+import uuid
+
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
-    VectorParams,
-    Distance,
     PointStruct,
     Filter,
     FieldCondition,
     MatchValue,
 )
 
+from ..qdrant_utils import QdrantCollection
 from .models import OntologySchema
+
+_ONTO_UUID_NAMESPACE = uuid.UUID("b4a2c3d5-6e7f-8091-a2b3-c4d5e6f7a8b9")
 
 
 ONTO_COLLECTION = "ontologies"
 
-_cached_vector_size: int | None = None
-
-
-async def _ensure_collection(qdrant: AsyncQdrantClient, vector_size: int | None = None) -> bool:
-    """Ensure collection exists correctly once per process to avoid polling Qdrant on every operation."""
-    global _cached_vector_size
-
-    # Already confirmed to exist — just validate size if requested.
-    if _cached_vector_size is not None:
-        if vector_size is not None and vector_size != _cached_vector_size:
-            raise ValueError(
-                f"Embedding dimension {vector_size} does not match "
-                f"existing collection vector size {_cached_vector_size}"
-            )
-        return True
-
-    collections = [c.name for c in (await qdrant.get_collections()).collections]
-    if ONTO_COLLECTION not in collections:
-        if vector_size is None:
-            return False  # Cannot create it and it doesn't exist
-        await qdrant.create_collection(
-            collection_name=ONTO_COLLECTION,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-        )
-        _cached_vector_size = vector_size
-    else:
-        existing_size = (await qdrant.get_collection(ONTO_COLLECTION)).config.params.vectors.size
-        if vector_size is not None and existing_size != vector_size:
-            raise ValueError(
-                f"Embedding dimension {vector_size} does not match "
-                f"existing collection vector size {existing_size}"
-            )
-        _cached_vector_size = existing_size
-
-    return True
+_collection = QdrantCollection(ONTO_COLLECTION)
 
 
 async def delete_from_qdrant(qdrant: AsyncQdrantClient, ontology_id: str):
     """Delete all ontology points matching an ontology_id from Qdrant."""
-    if not await _ensure_collection(qdrant):
+    if not await _collection.ensure(qdrant):
         return
     await qdrant.delete(
         collection_name=ONTO_COLLECTION,
@@ -72,13 +41,13 @@ async def register_in_qdrant(qdrant: AsyncQdrantClient, schema: OntologySchema):
             "Run embed_ontology() before registering in Qdrant."
         )
 
-    await _ensure_collection(qdrant, vector_size=len(schema.embedding))
+    await _collection.ensure(qdrant, vector_size=len(schema.embedding))
 
     await qdrant.upsert(
         collection_name=ONTO_COLLECTION,
         points=[
             PointStruct(
-                id=int(schema.ontology_id, base=16),
+                id=str(uuid.uuid5(_ONTO_UUID_NAMESPACE, schema.ontology_id)),
                 vector=schema.embedding,
                 payload={
                     "ontology_id": schema.ontology_id,
